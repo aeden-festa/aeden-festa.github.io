@@ -3,12 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Solo i file di questo sito possono girare nella pagina, e i dati possono andare solo al foglio Google. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' https://script.google.com https://script.googleusercontent.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <meta name="robots" content="noindex, nofollow">
-<title>Ingresso</title>
+<link rel="icon" href="data:,">
+<title>ÆDEN</title>
 <style>
   :root {
     --bg: #111; --pannello: #1d1d1d; --testo: #f2f2f2; --tenue: #9a9a9a; --oro: #f1c232;
-    --ok: #1e8e3e; --avviso: #e37400; --no: #d93025; --grigio: #5f6368;
+    --ok: #1e8e3e; --avviso: #e37400; --no: #d93025; --grigio: #5f6368; --blu: #1a73e8;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--testo); font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
@@ -19,8 +23,12 @@
   input, button { font: inherit; border-radius: 10px; padding: 12px 14px; }
   input { flex: 1; min-width: 0; background: #000; color: var(--testo); border: 1px solid #3a3a3a; letter-spacing: .05em; }
   button { border: none; background: var(--oro); color: #111; font-weight: 700; cursor: pointer; }
+  button.secondario { background: var(--pannello); color: var(--testo); padding: 8px 12px; font-weight: 600; }
+  .modi { margin-bottom: 8px; }
   .modi button { flex: 1; background: var(--pannello); color: var(--testo); border: 2px solid transparent; }
   .modi button.attivo { border-color: var(--oro); }
+  .modi #bControllo.attivo { border-color: var(--blu); background: #0d2a52; }
+  .banner { background: var(--blu); color: #fff; font-weight: 700; text-align: center; padding: 10px; border-radius: 10px; margin-bottom: 8px; }
   #lettore { width: 100%; min-height: 200px; margin: 12px 0; border-radius: 12px; overflow: hidden; background: #000; }
   #conteggio { color: var(--tenue); white-space: nowrap; }
   #conteggio b { color: var(--testo); font-size: 22px; }
@@ -29,6 +37,17 @@
   #ultimi { list-style: none; padding: 0; margin: 16px 0 0; }
   #ultimi li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #262626; }
   #ultimi .ora { color: var(--tenue); }
+
+  /* pagina dell'invitato */
+  #vInvitato { text-align: center; }
+  #vInvitato h1 { font-size: 34px; letter-spacing: .08em; }
+  .qr { background: #fff; border-radius: 16px; padding: 8px; margin: 16px auto; width: min(82vw, 340px); }
+  .qr svg { display: block; width: 100%; height: auto; }
+  .codice { font: 700 28px/1.2 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; letter-spacing: .12em; }
+  .istruzioni { text-align: left; list-style: none; padding: 0; margin: 20px 0 0; }
+  .istruzioni li { padding: 10px 0; border-bottom: 1px solid #262626; }
+
+  /* esito a tutto schermo */
   #esito { position: fixed; inset: 0; z-index: 10; display: flex; flex-direction: column; justify-content: center; align-items: center;
            gap: 12px; padding: 24px; text-align: center; color: #fff; cursor: pointer; }
   #esito.attesa { background: rgba(0, 0, 0, .85); }
@@ -36,6 +55,7 @@
   #esito.avviso { background: var(--avviso); }
   #esito.no { background: var(--no); }
   #esito.errore { background: var(--grigio); }
+  #esito.controllo { background: var(--blu); }
   #esito .titolo { font-size: clamp(32px, 10vw, 56px); font-weight: 800; line-height: 1.1; }
   #esito .nome { font-size: clamp(26px, 8vw, 40px); font-weight: 600; }
   #esito .badge { font-size: 26px; font-weight: 800; background: rgba(0, 0, 0, .3); padding: 6px 14px; border-radius: 8px; }
@@ -46,7 +66,21 @@
 </head>
 <body>
 <main>
-  <section id="vAccesso">
+  <section id="vInvitato" hidden>
+    <h1>ÆDEN</h1>
+    <p class="nota">Il tuo QR per entrare</p>
+    <div id="qr" class="qr"></div>
+    <div id="codiceInvitato" class="codice"></div>
+    <div id="msgInvitato" class="msg"></div>
+    <ul class="istruzioni">
+      <li>📸 Fai uno <b>screenshot</b>: all'ingresso potrebbe non esserci campo.</li>
+      <li>🔆 Alza la <b>luminosità</b> dello schermo.</li>
+      <li>🪪 Porta un <b>documento d'identità</b>: il nome deve corrispondere a quello in lista.</li>
+      <li>🔒 Il QR è <b>personale</b> e vale per un solo ingresso.</li>
+    </ul>
+  </section>
+
+  <section id="vAccesso" hidden>
     <h1>🎟️ Ingresso</h1>
     <p class="nota">Pagina riservata allo staff.</p>
     <form id="fAccesso" class="riga">
@@ -59,8 +93,16 @@
   <section id="vScanner" hidden>
     <div class="riga testa">
       <h1 id="titolo">Ingresso</h1>
-      <div id="conteggio"></div>
+      <div class="riga">
+        <div id="conteggio"></div>
+        <button id="bEsci" class="secondario" type="button">Esci</button>
+      </div>
     </div>
+    <div class="riga modi">
+      <button id="bIngresso" type="button">✅ Ingresso</button>
+      <button id="bControllo" type="button">🔍 Solo controllo</button>
+    </div>
+    <div id="avvisoControllo" class="banner" hidden>MODALITÀ CONTROLLO: le scansioni NON segnano l'ingresso</div>
     <div class="riga modi">
       <button id="bCamera" type="button">📷 Fotocamera</button>
       <button id="bLettore" type="button">⌨️ Lettore USB</button>
@@ -75,318 +117,6 @@
   </section>
 </main>
 <div id="esito" hidden></div>
-
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-<script>
-  // Il link al foglio arriva dopo il # (es. .../#https://script.google.com/macros/s/.../exec)
-  // così non sta scritto nella pagina pubblica. Viene ricordato su questo dispositivo.
-  const API = indirizzoApi();
-  const $ = id => document.getElementById(id);
-
-  let pin = leggi('sessionStorage', 'pin');
-  let modo = '';
-  let scanner = null;
-  let inVolo = false;
-  let ultimo = { codice: '', quando: 0 };
-  let timerEsito = 0;
-  let audio = null;
-
-  function indirizzoApi() {
-    let v = decodeURIComponent(location.hash.slice(1)).trim();
-    if (v) scrivi('localStorage', 'api', v);
-    else v = leggi('localStorage', 'api');
-    if (!v) return '';
-    return /^https?:\/\//.test(v) ? v : `https://script.google.com/macros/s/${v}/exec`;
-  }
-
-  // In navigazione privata o con i dati bloccati l'archivio può mancare: la pagina funziona lo stesso.
-  function leggi(archivio, chiave) {
-    try { return window[archivio].getItem(chiave) || ''; } catch (e) { return ''; }
-  }
-
-  function scrivi(archivio, chiave, valore) {
-    try { valore ? window[archivio].setItem(chiave, valore) : window[archivio].removeItem(chiave); } catch (e) { /* ignora */ }
-  }
-
-  function chiama(dati) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 20000);
-    // Corpo come testo semplice: niente richiesta preliminare CORS verso Google.
-    return fetch(API, { method: 'POST', body: JSON.stringify(dati), signal: ctrl.signal })
-      .then(r => r.json())
-      .finally(() => clearTimeout(timer));
-  }
-
-  /* ---------- Accesso ---------- */
-
-  $('fAccesso').addEventListener('submit', e => {
-    e.preventDefault();
-    const v = $('pin').value.trim();
-    if (!v) return;
-    sbloccaAudio();
-    accedi(v);
-  });
-
-  function accedi(v) {
-    $('msgAccesso').textContent = 'Controllo…';
-    chiama({ azione: 'login', pin: v })
-      .then(r => {
-        if (r.esito !== 'ok') {
-          esci(r.msg || 'Errore');
-          return;
-        }
-        pin = v;
-        scrivi('sessionStorage', 'pin', v);
-        avvia(r);
-      })
-      .catch(() => { $('msgAccesso').textContent = 'Il foglio non risponde: controlla la connessione e che il link sia quello giusto.'; });
-  }
-
-  function avvia(r) {
-    $('msgAccesso').textContent = '';
-    $('vAccesso').hidden = true;
-    $('vScanner').hidden = false;
-    $('titolo').textContent = `Ingresso ${r.festa || ''}`;
-    aggiornaConteggio(r.conteggio);
-    tieniSchermoAcceso();
-    imposta(navigator.maxTouchPoints > 0 || 'ontouchstart' in window ? 'camera' : 'lettore');
-  }
-
-  function esci(msg) {
-    pin = '';
-    scrivi('sessionStorage', 'pin', '');
-    fermaCamera();
-    chiudi();
-    $('vScanner').hidden = true;
-    $('vAccesso').hidden = false;
-    $('msgAccesso').textContent = msg || '';
-  }
-
-  /* ---------- Fotocamera e lettore ---------- */
-
-  $('bCamera').addEventListener('click', () => { sbloccaAudio(); imposta('camera'); });
-  $('bLettore').addEventListener('click', () => { sbloccaAudio(); imposta('lettore'); });
-
-  function imposta(m) {
-    modo = m;
-    $('bCamera').classList.toggle('attivo', m === 'camera');
-    $('bLettore').classList.toggle('attivo', m === 'lettore');
-    $('msgScanner').textContent = '';
-    if (m === 'camera') {
-      avviaCamera();
-    } else {
-      fermaCamera();
-      $('codice').focus();
-    }
-  }
-
-  function avviaCamera() {
-    if (!window.Html5Qrcode) {
-      $('msgScanner').textContent = 'Scanner non caricato: controlla la connessione e ricarica la pagina.';
-      return;
-    }
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      $('msgScanner').textContent = spiegaErroreCamera('');
-      return;
-    }
-    // Il riquadro deve essere visibile prima di avviare: la libreria ne misura la larghezza.
-    $('lettore').hidden = false;
-    if (!scanner) scanner = new Html5Qrcode('lettore', { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE], verbose: false });
-    if (scanner.isScanning) return;
-    const riquadro = (w, h) => {
-      const lato = Math.max(150, Math.floor(Math.min(w, h) * 0.7));
-      return { width: lato, height: lato };
-    };
-    scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: riquadro }, testo => nuovoCodice(testo), () => {})
-      .catch(err => {
-        $('lettore').hidden = true;
-        $('msgScanner').textContent = spiegaErroreCamera(err);
-      });
-  }
-
-  function fermaCamera() {
-    $('lettore').hidden = true;
-    if (scanner && scanner.isScanning) scanner.stop().catch(() => {});
-  }
-
-  function spiegaErroreCamera(err) {
-    const e = String(err || '');
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      return 'Questo browser non può usare la fotocamera: apri il link con Chrome (Android) o Safari (iPhone), non dentro l\'app di Fogli o WhatsApp.';
-    }
-    if (/NotAllowed|Permission/i.test(e)) {
-      return 'Permesso fotocamera negato: consentilo per questo sito (tocca il lucchetto o "aA" accanto all\'indirizzo) e premi di nuovo 📷 Fotocamera.';
-    }
-    if (/NotFound|not found/i.test(e)) return 'Nessuna fotocamera trovata su questo dispositivo: scrivi il codice.';
-    if (/NotReadable|Could not start/i.test(e)) return 'La fotocamera è occupata da un\'altra app: chiudila e premi di nuovo 📷 Fotocamera.';
-    return `Fotocamera non disponibile (${e}): scrivi il codice.`;
-  }
-
-  $('fCodice').addEventListener('submit', e => {
-    e.preventDefault();
-    const v = $('codice').value;
-    $('codice').value = '';
-    nuovoCodice(v);
-  });
-
-  // Col lettore USB il campo deve restare sempre selezionato.
-  $('codice').addEventListener('blur', () => {
-    setTimeout(() => {
-      if (modo === 'lettore' && !$('vScanner').hidden && document.activeElement !== $('codice')) $('codice').focus();
-    }, 300);
-  });
-
-  function normalizza(testo) {
-    return String(testo || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-  }
-
-  function nuovoCodice(testo) {
-    const codice = normalizza(testo);
-    if (!codice || inVolo) return;
-    // la fotocamera rilegge lo stesso QR finché resta inquadrato
-    if (codice === ultimo.codice && Date.now() - ultimo.quando < 4000) return;
-    controlla(codice);
-  }
-
-  function controlla(codice) {
-    inVolo = true;
-    ultimo = { codice, quando: Date.now() };
-    mostraEsito('attesa', ['titolo', '⏳'], ['det', codice]);
-    chiama({ azione: 'checkin', pin, codice })
-      .catch(() => ({ esito: 'errore', msg: 'Nessuna risposta dal foglio: controlla la connessione e riprova.' }))
-      .then(r => {
-        inVolo = false;
-        risultato(r);
-      });
-  }
-
-  /* ---------- Esito ---------- */
-
-  function risultato(r) {
-    if (r.esito === 'pin') {
-      esci(r.msg);
-      return;
-    }
-    if (r.conteggio) aggiornaConteggio(r.conteggio);
-    const avvisi = [];
-    if (r.esito === 'ok') {
-      if (!/^si$/i.test(String(r.pagato).trim())) avvisi.push('NON RISULTA PAGATO');
-      if (/minorenn/i.test(r.eta)) avvisi.push('MINORENNE');
-    }
-    let tipo;
-    const parti = [];
-    if (r.esito === 'ok') {
-      tipo = avvisi.length ? 'avviso' : 'ok';
-      parti.push(['titolo', '✔ ENTRA'], ['nome', r.nome]);
-      avvisi.forEach(a => parti.push(['badge', `⚠ ${a}`]));
-      parti.push(['det', `Guardaroba: ${r.guardaroba || '—'}`]);
-    } else if (r.esito === 'gia') {
-      tipo = 'no';
-      parti.push(['titolo', '✖ GIÀ ENTRATO'], ['nome', r.nome], ['det', r.ora ? `alle ${r.ora}` : 'ora non registrata']);
-    } else if (r.esito === 'sconosciuto') {
-      tipo = 'no';
-      parti.push(['titolo', '✖ QR NON VALIDO'], ['det', `Codice: ${r.codice || '—'}`], ['det', 'Non è nella lista: controlla a mano.']);
-    } else {
-      tipo = 'errore';
-      ultimo.codice = '';  // si può riprovare subito
-      parti.push(['titolo', 'Errore'], ['det', r.msg || 'Riprova.']);
-    }
-    parti.push(['piccolo', 'Tocca per continuare']);
-    mostraEsito(tipo, ...parti);
-    if (tipo !== 'errore') registra(r, tipo);
-    segnale(tipo);
-    clearTimeout(timerEsito);
-    timerEsito = setTimeout(chiudi, tipo === 'ok' ? 2000 : 4000);
-  }
-
-  function mostraEsito(tipo, ...parti) {
-    const box = $('esito');
-    box.className = tipo;
-    box.replaceChildren(...parti.map(([classe, testo]) => {
-      const d = document.createElement('div');
-      d.className = classe;
-      d.textContent = testo;
-      return d;
-    }));
-    box.hidden = false;
-  }
-
-  function chiudi() {
-    clearTimeout(timerEsito);
-    if (inVolo) return;
-    $('esito').hidden = true;
-    ultimo.quando = Date.now();
-    if (modo === 'lettore' && !$('vScanner').hidden) $('codice').focus();
-  }
-
-  $('esito').addEventListener('click', chiudi);
-
-  function registra(r, tipo) {
-    const li = document.createElement('li');
-    const chi = document.createElement('span');
-    chi.textContent = `${{ ok: '✔', avviso: '⚠', no: '✖' }[tipo]} ${r.nome || r.codice || ''}${r.esito === 'gia' ? ' (già entrato)' : ''}`;
-    const ora = document.createElement('span');
-    ora.className = 'ora';
-    ora.textContent = new Date().toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
-    li.append(chi, ora);
-    const lista = $('ultimi');
-    lista.prepend(li);
-    while (lista.children.length > 6) lista.lastChild.remove();
-  }
-
-  function aggiornaConteggio(c) {
-    if (!c) return;
-    const b = document.createElement('b');
-    b.textContent = c.entrati;
-    $('conteggio').replaceChildren('Entrati ', b, ` / ${c.totale}`);
-  }
-
-  /* ---------- Suono, vibrazione, schermo acceso ---------- */
-
-  function sbloccaAudio() {
-    try {
-      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
-      audio.resume();
-    } catch (e) { audio = null; }
-  }
-
-  function segnale(tipo) {
-    if (navigator.vibrate) navigator.vibrate(tipo === 'ok' ? 120 : [250, 120, 250]);
-    if (!audio) return;
-    (tipo === 'ok' ? [880] : [220, 220]).forEach((freq, i) => {
-      const osc = audio.createOscillator();
-      const vol = audio.createGain();
-      const t = audio.currentTime + i * 0.25;
-      osc.frequency.value = freq;
-      osc.connect(vol).connect(audio.destination);
-      vol.gain.setValueAtTime(0.2, t);
-      vol.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-      osc.start(t);
-      osc.stop(t + 0.2);
-    });
-  }
-
-  function tieniSchermoAcceso() {
-    if (navigator.wakeLock) navigator.wakeLock.request('screen').catch(() => {});
-  }
-
-  // Quando lo schermo si spegne il telefono chiude la fotocamera: al ritorno la riapro.
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState !== 'visible' || $('vScanner').hidden) return;
-    tieniSchermoAcceso();
-    if (modo !== 'camera') return;
-    if (scanner && scanner.isScanning) scanner.stop().catch(() => {}).then(avviaCamera);
-    else avviaCamera();
-  });
-
-  /* ---------- Avvio ---------- */
-
-  if (!API) {
-    $('fAccesso').hidden = true;
-    $('msgAccesso').textContent = 'Manca il collegamento al foglio: apri il link completo che ti hanno mandato (quello con # e l\'indirizzo del foglio).';
-  } else if (pin) {
-    accedi(pin);
-  }
-</script>
+<script src="app.js"></script>
 </body>
 </html>
