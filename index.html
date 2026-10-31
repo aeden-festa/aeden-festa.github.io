@@ -21,8 +21,7 @@
   button { border: none; background: var(--oro); color: #111; font-weight: 700; cursor: pointer; }
   .modi button { flex: 1; background: var(--pannello); color: var(--testo); border: 2px solid transparent; }
   .modi button.attivo { border-color: var(--oro); }
-  #lettore { width: 100%; margin: 12px 0; border-radius: 12px; overflow: hidden; background: #000; }
-  #lettore:empty { display: none; }
+  #lettore { width: 100%; min-height: 200px; margin: 12px 0; border-radius: 12px; overflow: hidden; background: #000; }
   #conteggio { color: var(--tenue); white-space: nowrap; }
   #conteggio b { color: var(--testo); font-size: 22px; }
   .msg { min-height: 1.4em; margin-top: 8px; color: #ff8a80; }
@@ -66,7 +65,7 @@
       <button id="bCamera" type="button">📷 Fotocamera</button>
       <button id="bLettore" type="button">⌨️ Lettore USB</button>
     </div>
-    <div id="lettore"></div>
+    <div id="lettore" hidden></div>
     <form id="fCodice" class="riga" style="margin-top:12px">
       <input id="codice" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Codice o lettore USB" aria-label="Codice">
       <button>OK</button>
@@ -150,7 +149,7 @@
     $('titolo').textContent = `Ingresso ${r.festa || ''}`;
     aggiornaConteggio(r.conteggio);
     tieniSchermoAcceso();
-    imposta('ontouchstart' in window ? 'camera' : 'lettore');
+    imposta(navigator.maxTouchPoints > 0 || 'ontouchstart' in window ? 'camera' : 'lettore');
   }
 
   function esci(msg) {
@@ -186,6 +185,12 @@
       $('msgScanner').textContent = 'Scanner non caricato: controlla la connessione e ricarica la pagina.';
       return;
     }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      $('msgScanner').textContent = spiegaErroreCamera('');
+      return;
+    }
+    // Il riquadro deve essere visibile prima di avviare: la libreria ne misura la larghezza.
+    $('lettore').hidden = false;
     if (!scanner) scanner = new Html5Qrcode('lettore', { formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE], verbose: false });
     if (scanner.isScanning) return;
     const riquadro = (w, h) => {
@@ -194,12 +199,27 @@
     };
     scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: riquadro }, testo => nuovoCodice(testo), () => {})
       .catch(err => {
-        $('msgScanner').textContent = `Fotocamera non disponibile (${err}). Dai il permesso alla fotocamera oppure scrivi il codice.`;
+        $('lettore').hidden = true;
+        $('msgScanner').textContent = spiegaErroreCamera(err);
       });
   }
 
   function fermaCamera() {
+    $('lettore').hidden = true;
     if (scanner && scanner.isScanning) scanner.stop().catch(() => {});
+  }
+
+  function spiegaErroreCamera(err) {
+    const e = String(err || '');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return 'Questo browser non può usare la fotocamera: apri il link con Chrome (Android) o Safari (iPhone), non dentro l\'app di Fogli o WhatsApp.';
+    }
+    if (/NotAllowed|Permission/i.test(e)) {
+      return 'Permesso fotocamera negato: consentilo per questo sito (tocca il lucchetto o "aA" accanto all\'indirizzo) e premi di nuovo 📷 Fotocamera.';
+    }
+    if (/NotFound|not found/i.test(e)) return 'Nessuna fotocamera trovata su questo dispositivo: scrivi il codice.';
+    if (/NotReadable|Could not start/i.test(e)) return 'La fotocamera è occupata da un\'altra app: chiudila e premi di nuovo 📷 Fotocamera.';
+    return `Fotocamera non disponibile (${e}): scrivi il codice.`;
   }
 
   $('fCodice').addEventListener('submit', e => {
