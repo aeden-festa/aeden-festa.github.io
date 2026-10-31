@@ -419,6 +419,9 @@
 
   /* ---------- Avvio ---------- */
 
+  // Un altro link aperto nella stessa scheda cambia solo la parte dopo il #: ricarico da capo.
+  window.addEventListener('hashchange', () => location.reload());
+
   const dopoCancelletto = decodeURIComponent(location.hash.slice(1)).trim();
   if (FORMATO_CODICE.test(dopoCancelletto.toUpperCase())) paginaInvitato(dopoCancelletto.toUpperCase());
   else paginaStaff(dopoCancelletto);
