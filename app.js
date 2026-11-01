@@ -60,10 +60,7 @@
       .then(([, scarto, chiave]) => {
         let mostrata = -1;
         const aggiorna = () => {
-          const adesso = Date.now() + scarto;
-          const finestra = Math.floor(adesso / 1000 / DURATA_QR);
-          $('orologio').textContent = new Date(adesso).toLocaleTimeString('it-IT');
-          $('barra').style.width = `${(1 - ((adesso / 1000) % DURATA_QR) / DURATA_QR) * 100}%`;
+          const finestra = Math.floor((Date.now() + scarto) / 1000 / DURATA_QR);
           if (finestra === mostrata) return;
           mostrata = finestra;
           firma(chiave, finestra).then(f => {
@@ -74,10 +71,10 @@
           });
         };
         aggiorna();
-        setInterval(aggiorna, 250);
+        setInterval(aggiorna, 1000);
       })
       .catch(() => {
-        ['qr', 'vivo', 'tempo'].forEach(id => { $(id).hidden = true; });
+        $('qr').hidden = true;
         $('msgInvitato').textContent = 'Non riesco a mostrare il QR: aggiorna il browser, oppure all\'ingresso fatti cercare per nome.';
       });
   }
@@ -85,7 +82,7 @@
   function linkVecchio() {
     document.title = 'ÆDEN';
     $('vInvitato').hidden = false;
-    ['qr', 'vivo', 'tempo'].forEach(id => { $(id).hidden = true; });
+    $('qr').hidden = true;
     $('msgInvitato').textContent = 'Questo link non vale più: apri quello dell\'ultimo SMS.';
   }
 

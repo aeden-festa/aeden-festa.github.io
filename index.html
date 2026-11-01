@@ -41,14 +41,8 @@
   /* pagina dell'invitato */
   #vInvitato { text-align: center; }
   #vInvitato h1 { font-size: 34px; letter-spacing: .08em; }
-  .qr { background: #fff; border-radius: 16px; padding: 8px; margin: 16px auto 12px; width: min(82vw, 340px); }
+  .qr { background: #fff; border-radius: 16px; padding: 8px; margin: 16px auto; width: min(82vw, 340px); }
   .qr svg { display: block; width: 100%; height: auto; }
-  /* orologio che scorre e barra del tempo: si vede subito che non è uno screenshot */
-  .vivo { display: flex; justify-content: center; align-items: center; gap: 10px; font: 700 24px/1 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; }
-  .punto { width: 12px; height: 12px; border-radius: 50%; background: #34a853; animation: pulsa 1s ease-in-out infinite; }
-  @keyframes pulsa { 50% { transform: scale(.5); opacity: .4; } }
-  .tempo { height: 6px; width: min(82vw, 340px); margin: 12px auto 0; background: #2a2a2a; border-radius: 3px; overflow: hidden; }
-  #barra { height: 100%; width: 100%; background: var(--oro); transition: width .25s linear; }
   .istruzioni { text-align: left; list-style: none; padding: 0; margin: 20px 0 0; }
   .istruzioni li { padding: 10px 0; border-bottom: 1px solid #262626; }
 
@@ -75,11 +69,8 @@
     <h1>ÆDEN</h1>
     <p class="nota">Il tuo QR per entrare</p>
     <div id="qr" class="qr"></div>
-    <div id="vivo" class="vivo"><span class="punto"></span><span id="orologio"></span></div>
-    <div id="tempo" class="tempo"><div id="barra"></div></div>
     <div id="msgInvitato" class="msg"></div>
     <ul class="istruzioni">
-      <li>🔄 Il QR <b>cambia ogni 30 secondi</b>: gli screenshot non valgono, all'ingresso apri questa pagina.</li>
       <li>🔆 Alza la <b>luminosità</b> dello schermo.</li>
       <li>🪪 Porta un <b>documento d'identità</b>: il nome deve corrispondere a quello in lista.</li>
       <li>🔒 Il QR è <b>personale</b> e vale per un solo ingresso.</li>
