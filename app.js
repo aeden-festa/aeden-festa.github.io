@@ -15,6 +15,8 @@
   const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   const FORMATO_CODICE = new RegExp(`^[${ALFABETO}]{8}$`);
   const FORMATO_ID = /^AKfyc[\w-]{20,200}$/;
+  // Web app che non valgono più (il foglio di prova): un telefono che li ha salvati li dimentica.
+  const ID_RITIRATI = ['AKfycbx8Dfj3CezchOj947DcTevJOnEvQrMvvCbwwKRz9DC2yzOZNmfdDkVolDemE5LuK6b7yg'];
   const $ = id => document.getElementById(id);
 
   let API = '';
@@ -92,25 +94,32 @@
   /* ---------- Pagina dello staff ---------- */
 
   function paginaStaff(valore) {
-    API = indirizzoApi(valore);
+    const id = idWebApp(valore);
     $('vAccesso').hidden = false;
-    if (!API) {
+    if (!id) {
       $('fAccesso').hidden = true;
-      $('msgAccesso').textContent = 'Manca il collegamento al foglio: apri il link completo che ti hanno mandato.';
+      $('msgAccesso').textContent = 'Manca il collegamento al foglio (o è quello vecchio di prova): apri il link nuovo che ti hanno mandato.';
       return;
     }
+    API = `https://script.google.com/macros/s/${id}/exec`;
+    // Si vede subito se il telefono sta usando il foglio giusto.
+    $('collegato').textContent = `Foglio collegato: …${id.slice(-4)}`;
     pin = leggi('sessionStorage', 'pin');
     if (pin) accedi(pin);
   }
 
   // Accetta solo l'ID di un web app di Google (o il suo indirizzo completo):
   // un link modificato non può far mandare il PIN a un altro sito.
-  function indirizzoApi(valore) {
+  function idWebApp(valore) {
     const m = valore.match(/^https:\/\/script\.google\.com\/macros\/s\/([\w-]+)\/exec$/);
     let id = m ? m[1] : valore;
-    if (FORMATO_ID.test(id)) scrivi('localStorage', 'api', id);
+    if (FORMATO_ID.test(id) && !ID_RITIRATI.includes(id)) scrivi('localStorage', 'api', id);
     else id = leggi('localStorage', 'api');
-    return FORMATO_ID.test(id) ? `https://script.google.com/macros/s/${id}/exec` : '';
+    if (ID_RITIRATI.includes(id)) {
+      scrivi('localStorage', 'api', '');
+      return '';
+    }
+    return FORMATO_ID.test(id) ? id : '';
   }
 
   function chiama(dati) {
