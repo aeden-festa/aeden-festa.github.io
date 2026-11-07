@@ -1,8 +1,8 @@
 'use strict';
 /*
  * Pagina di ingresso ÆDEN. Fa due cose diverse in base a cosa c'è dopo il # nel link:
- *   …/#E2946757K3J9X2M4QP   codice (8) + segreto (10)   → pagina dell'invitato con il suo QR
- *   …/#AKfycb…              ID del web app del foglio    → pagina dello staff (PIN, scanner)
+ *   …/#E2946757    codice di 8 caratteri      → pagina dell'invitato con il suo QR (fisso)
+ *   …/#AKfycb…     ID del web app del foglio  → pagina dello staff (PIN, scanner)
  * Quello che sta dopo il # non viene mai mandato a nessun server.
  */
 (function () {
@@ -13,9 +13,8 @@
   }
 
   const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const FORMATO_CODICE = new RegExp(`^[${ALFABETO}]{8}$`);
-  const FORMATO_INVITATO = new RegExp(`^[${ALFABETO}]{18}$`);
-  const DURATA_QR = 30;  // secondi, come nel foglio
+  // 8 caratteri; i link della versione col QR che cambiava hanno 10 caratteri in più, che si ignorano
+  const FORMATO_INVITATO = new RegExp(`^[${ALFABETO}]{8}([${ALFABETO}]{10})?$`);
   const FORMATO_ID = /^AKfyc[\w-]{20,200}$/;
   // Web app che non valgono più (il foglio di prova): un telefono che li ha salvati li dimentica.
   const ID_RITIRATI = ['AKfycbx8Dfj3CezchOj947DcTevJOnEvQrMvvCbwwKRz9DC2yzOZNmfdDkVolDemE5LuK6b7yg'];
@@ -51,60 +50,21 @@
 
   /* ---------- Pagina dell'invitato ---------- */
 
-  // Il QR contiene il codice più una firma che cambia ogni 30 secondi: uno screenshot scade presto.
-  function paginaInvitato(valore) {
+  // QR fisso con il solo codice: si può anche fare lo screenshot.
+  function paginaInvitato(codice) {
     document.title = 'Il tuo QR · ÆDEN';
     $('vInvitato').hidden = false;
-    const codice = valore.slice(0, 8);
-    Promise.all([caricaScript('vendor/qrcode-generator.js'), differenzaOrologio(), chiaveFirma(valore.slice(8))])
-      .then(([, scarto, chiave]) => {
-        let mostrata = -1;
-        const aggiorna = () => {
-          const finestra = Math.floor((Date.now() + scarto) / 1000 / DURATA_QR);
-          if (finestra === mostrata) return;
-          mostrata = finestra;
-          firma(chiave, finestra).then(f => {
-            const qr = window.qrcode(0, 'M');
-            qr.addData(codice + f);
-            qr.make();
-            $('qr').replaceChildren(disegnaQR(qr));
-          });
-        };
-        aggiorna();
-        setInterval(aggiorna, 1000);
+    caricaScript('vendor/qrcode-generator.js')
+      .then(() => {
+        const qr = window.qrcode(0, 'M');
+        qr.addData(codice);
+        qr.make();
+        $('qr').replaceChildren(disegnaQR(qr));
       })
       .catch(() => {
         $('qr').hidden = true;
         $('msgInvitato').textContent = 'Non riesco a mostrare il QR: aggiorna il browser, oppure all\'ingresso fatti cercare per nome.';
       });
-  }
-
-  function linkVecchio() {
-    document.title = 'ÆDEN';
-    $('vInvitato').hidden = false;
-    $('qr').hidden = true;
-    $('msgInvitato').textContent = 'Questo link non vale più: apri quello dell\'ultimo SMS.';
-  }
-
-  function chiaveFirma(segreto) {
-    return crypto.subtle.importKey('raw', new TextEncoder().encode(segreto), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  }
-
-  function firma(chiave, finestra) {
-    return crypto.subtle.sign('HMAC', chiave, new TextEncoder().encode(String(finestra)))
-      .then(buf => Array.from(new Uint8Array(buf).slice(0, 6), b => ALFABETO.charAt(b & 31)).join(''));
-  }
-
-  // Il QR dipende dall'ora: uso quella del server, nel caso l'orologio del telefono sia sbagliato.
-  function differenzaOrologio() {
-    const prima = Date.now();
-    return fetch(`${location.pathname}?ora=${prima}`, { method: 'HEAD', cache: 'no-store' })
-      .then(r => {
-        const server = Date.parse(r.headers.get('Date'));
-        const scarto = server + 500 - (prima + Date.now()) / 2;  // l'ora del server è al secondo
-        return Number.isFinite(scarto) && Math.abs(scarto) < 3600000 ? scarto : 0;
-      })
-      .catch(() => 0);
   }
 
   function disegnaQR(qr) {
@@ -250,7 +210,7 @@
           const lato = Math.max(150, Math.floor(Math.min(w, h) * 0.7));
           return { width: lato, height: lato };
         };
-        return scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: riquadro }, testo => nuovoCodice(testo, false), () => {});
+        return scanner.start({ facingMode: 'environment' }, { fps: 10, qrbox: riquadro }, testo => nuovoCodice(testo), () => {});
       }, () => {
         throw new Error('Scanner non caricato: controlla la connessione e ricarica la pagina.');
       })
@@ -282,25 +242,24 @@
     return String(testo || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   }
 
-  // daTastiera: scritto a mano o dal lettore USB. Solo così vale anche il codice senza firma.
-  function nuovoCodice(testo, daTastiera) {
+  function nuovoCodice(testo) {
     const contenuto = normalizza(testo);
     if (!contenuto || inVolo) return;
-    const codice = contenuto.slice(0, 8);  // la firma cambia ogni 30 secondi: conta il codice
+    const codice = contenuto.slice(0, 8);
     if (codice === ultimo.codice) {
       // La fotocamera rilegge lo stesso QR finché resta inquadrato: chi è appena entrato
       // non deve diventare "già entrato" solo perché tiene il telefono alzato.
       const finestra = ultimo.entrato ? 30000 : 4000;
       if (!$('esito').hidden || Date.now() - ultimo.quando < finestra) return;
     }
-    controlla(contenuto, daTastiera);
+    controlla(contenuto);
   }
 
-  function controlla(contenuto, daTastiera) {
+  function controlla(contenuto) {
     inVolo = true;
     ultimo = { codice: contenuto.slice(0, 8), quando: Date.now(), entrato: false };
     mostraEsito('attesa', ['titolo', '⏳'], ['det', contenuto.slice(0, 8)]);
-    chiama({ azione, pin, codice: contenuto, manuale: daTastiera })
+    chiama({ azione, pin, codice: contenuto })
       .catch(() => ({ esito: 'errore', msg: 'Nessuna risposta dal foglio: controlla la connessione e riprova.' }))
       .then(r => {
         inVolo = false;
@@ -320,21 +279,13 @@
     const minorenne = /minorenn/i.test(r.eta || '');
     const pagato = /^si$/i.test(String(r.pagato || '').trim());
     const eta = minorenne ? ['badge', '⚠ MINORENNE'] : ['det', r.eta || 'Età non indicata'];
-    const aMano = r.manuale ? ['badge', '⌨️ CODICE A MANO: controlla bene il documento'] : null;
     const parti = [];
     let tipo;
     if (r.esito === 'ok') {
-      tipo = minorenne || !pagato || r.manuale ? 'avviso' : 'ok';
+      tipo = minorenne || !pagato ? 'avviso' : 'ok';
       parti.push(['titolo', '✔ ENTRA'], ['nome', r.nome], eta);
       if (!pagato) parti.push(['badge', '⚠ NON RISULTA PAGATO']);
-      if (aMano) parti.push(aMano);
       parti.push(['det', `Guardaroba: ${r.guardaroba || '—'}`]);
-    } else if (r.esito === 'scaduto') {
-      tipo = 'no';
-      parti.push(['titolo', '✖ QR SCADUTO'], ['nome', r.nome], ['det', 'Sembra uno screenshot o una pagina vecchia: fai riaprire il link dell\'SMS.']);
-    } else if (r.esito === 'vecchio') {
-      tipo = 'no';
-      parti.push(['titolo', '✖ QR NON VALIDO'], ['nome', r.nome], ['det', 'Non è il QR della pagina (che cambia ogni 30 secondi): fai aprire il link dell\'SMS.']);
     } else if (r.esito === 'gia') {
       tipo = 'no';
       parti.push(['titolo', '✖ GIÀ ENTRATO'], ['nome', r.nome], ['det', r.ora ? `alle ${r.ora}` : 'ora non registrata']);
@@ -344,7 +295,6 @@
       parti.push(pagato ? ['det', `Pagato: Si${dettagliPagamento(r)}`] : ['badge', '⚠ NON RISULTA PAGATO']);
       parti.push(['det', `Guardaroba: ${r.guardaroba || '—'}`]);
       parti.push(['det', r.entrato ? `Ingresso: già entrato${r.ora ? ` alle ${r.ora}` : ''}` : 'Ingresso: non ancora entrato']);
-      if (aMano) parti.push(aMano);
       parti.push(['det', 'Confronta il nome con il documento']);
     } else if (r.esito === 'sconosciuto') {
       tipo = 'no';
@@ -394,7 +344,7 @@
   function registra(r, tipo) {
     const li = document.createElement('li');
     const chi = document.createElement('span');
-    const nota = { gia: ' (già entrato)', controllo: ' (controllo)', scaduto: ' (QR scaduto)', vecchio: ' (QR non valido)' }[r.esito] || '';
+    const nota = { gia: ' (già entrato)', controllo: ' (controllo)' }[r.esito] || '';
     chi.textContent = `${{ ok: '✔', avviso: '⚠', no: '✖', controllo: '🔍' }[tipo]} ${r.nome || r.codice || ''}${nota}`;
     const ora = document.createElement('span');
     ora.className = 'ora';
@@ -461,7 +411,7 @@
     e.preventDefault();
     const v = $('codice').value;
     $('codice').value = '';
-    nuovoCodice(v, true);
+    nuovoCodice(v);
   });
   // Col lettore USB il campo deve restare sempre selezionato.
   $('codice').addEventListener('blur', () => {
@@ -485,7 +435,6 @@
 
   const dopoCancelletto = decodeURIComponent(location.hash.slice(1)).trim();
   const maiuscolo = dopoCancelletto.toUpperCase();
-  if (FORMATO_INVITATO.test(maiuscolo)) paginaInvitato(maiuscolo);
-  else if (FORMATO_CODICE.test(maiuscolo)) linkVecchio();  // link di prova, prima del QR dinamico
+  if (FORMATO_INVITATO.test(maiuscolo)) paginaInvitato(maiuscolo.slice(0, 8));
   else paginaStaff(dopoCancelletto);
 })();
