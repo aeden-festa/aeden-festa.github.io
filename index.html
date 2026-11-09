@@ -29,6 +29,13 @@
   .modi button.attivo { border-color: var(--oro); }
   .modi #bControllo.attivo { border-color: var(--blu); background: #0d2a52; }
   .banner { background: var(--blu); color: #fff; font-weight: 700; text-align: center; padding: 10px; border-radius: 10px; margin-bottom: 8px; }
+  .banner.arancio { background: var(--avviso); }
+  .postazioni button { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .postazioni span { font-weight: 400; font-size: 14px; color: var(--tenue); }
+  .postazioni .stato { color: var(--avviso); font-weight: 700; }
+  .postazioni .stato:empty { display: none; }
+  button.largo { display: block; width: 100%; margin-top: 8px; }
+  #sceltaPostazione { margin-bottom: 8px; }
   #lettore { width: 100%; min-height: 200px; margin: 12px 0; border-radius: 12px; overflow: hidden; background: #000; }
   #conteggio { color: var(--tenue); white-space: nowrap; }
   #conteggio b { color: var(--testo); font-size: 22px; }
@@ -80,37 +87,40 @@
   <section id="vAccesso" hidden>
     <h1>🎟️ Ingresso</h1>
     <p class="nota">Pagina riservata allo staff.</p>
+    <div id="sceltaPostazione">
+      <p class="nota">Dove compare il nome di chi entra?</p>
+      <div class="riga modi postazioni">
+        <button id="bPost1" type="button"><b>Postazione 1</b><span>Ricerca nome 1</span><span class="stato"></span></button>
+        <button id="bPost2" type="button"><b>Postazione 2</b><span>Ricerca nome 2</span><span class="stato"></span></button>
+      </div>
+    </div>
     <form id="fAccesso" class="riga">
       <input id="pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN staff" aria-label="PIN staff">
       <button>Entra</button>
     </form>
     <div id="msgAccesso" class="msg"></div>
-    <p id="collegato" class="nota"></p>
   </section>
 
   <section id="vScanner" hidden>
     <div class="riga testa">
-      <h1 id="titolo">Ingresso</h1>
+      <div>
+        <h1 id="titolo">Ingresso</h1>
+        <div id="postazioneAttiva" class="nota"></div>
+      </div>
       <div class="riga">
         <div id="conteggio"></div>
         <button id="bEsci" class="secondario" type="button">Esci</button>
       </div>
     </div>
+    <div id="avvisoPostazione" class="banner arancio" hidden></div>
     <div class="riga modi">
       <button id="bIngresso" type="button">✅ Ingresso</button>
       <button id="bControllo" type="button">🔍 Solo controllo</button>
     </div>
     <div id="avvisoControllo" class="banner" hidden>MODALITÀ CONTROLLO: le scansioni NON segnano l'ingresso</div>
-    <div class="riga modi">
-      <button id="bCamera" type="button">📷 Fotocamera</button>
-      <button id="bLettore" type="button">⌨️ Lettore USB</button>
-    </div>
     <div id="lettore" hidden></div>
-    <form id="fCodice" class="riga" style="margin-top:12px">
-      <input id="codice" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="Codice o lettore USB" aria-label="Codice">
-      <button>OK</button>
-    </form>
     <div id="msgScanner" class="msg"></div>
+    <button id="bCamera" class="largo" type="button" hidden>📷 Riavvia fotocamera</button>
     <ul id="ultimi"></ul>
   </section>
 </main>

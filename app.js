@@ -1,8 +1,8 @@
 'use strict';
 /*
  * Pagina di ingresso ÆDEN. Fa due cose diverse in base a cosa c'è dopo il # nel link:
- *   …/#E2946757    codice di 8 caratteri      → pagina dell'invitato con il suo QR (fisso)
- *   …/#AKfycb…     ID del web app del foglio  → pagina dello staff (PIN, scanner)
+ *   …/#E2946757K3J9X2M4QP   codice (8) + segreto (10)   → pagina dell'invitato con il suo QR
+ *   …/#AKfycb…              ID del web app del foglio    → pagina dello staff (PIN, fotocamera)
  * Quello che sta dopo il # non viene mai mandato a nessun server.
  */
 (function () {
@@ -13,8 +13,10 @@
   }
 
   const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  // 8 caratteri; i link della versione col QR che cambiava hanno 10 caratteri in più, che si ignorano
-  const FORMATO_INVITATO = new RegExp(`^[${ALFABETO}]{8}([${ALFABETO}]{10})?$`);
+  const FORMATO_CODICE = new RegExp(`^[${ALFABETO}]{8}$`);
+  const FORMATO_INVITATO = new RegExp(`^[${ALFABETO}]{18}$`);
+  const DURATA_QR = 30;         // secondi, come nel foglio
+  const DURATA_ESITO = 10000;   // il risultato di un ingresso resta a schermo 10 secondi
   const FORMATO_ID = /^AKfyc[\w-]{20,200}$/;
   // Web app che non valgono più (il foglio di prova): un telefono che li ha salvati li dimentica.
   const ID_RITIRATI = ['AKfycbx8Dfj3CezchOj947DcTevJOnEvQrMvvCbwwKRz9DC2yzOZNmfdDkVolDemE5LuK6b7yg'];
@@ -23,11 +25,13 @@
   let API = '';
   let pin = '';
   let azione = 'checkin';  // 'checkin' segna l'ingresso, 'controllo' mostra solo le info
-  let modo = '';           // 'camera' o 'lettore'
+  let postazione = Number(leggi('localStorage', 'postazione')) === 2 ? 2 : 1;
+  const sessione = leggi('sessionStorage', 'sessione') || nuovaSessione();
   let scanner = null;
   let inVolo = false;
   let ultimo = { codice: '', quando: 0, entrato: false };
   let timerEsito = 0;
+  let battito = 0;
   let audio = null;
 
   function leggi(archivio, chiave) {
@@ -36,6 +40,13 @@
 
   function scrivi(archivio, chiave, valore) {
     try { valore ? window[archivio].setItem(chiave, valore) : window[archivio].removeItem(chiave); } catch (e) { /* ignora */ }
+  }
+
+  // Ogni scheda del browser conta come un telefono diverso per le postazioni.
+  function nuovaSessione() {
+    const s = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
+    scrivi('sessionStorage', 'sessione', s);
+    return s;
   }
 
   function caricaScript(src) {
@@ -50,21 +61,60 @@
 
   /* ---------- Pagina dell'invitato ---------- */
 
-  // QR fisso con il solo codice: si può anche fare lo screenshot.
-  function paginaInvitato(codice) {
+  // Il QR contiene il codice più una firma che cambia ogni 30 secondi: uno screenshot scade presto.
+  function paginaInvitato(valore) {
     document.title = 'Il tuo QR · ÆDEN';
     $('vInvitato').hidden = false;
-    caricaScript('vendor/qrcode-generator.js')
-      .then(() => {
-        const qr = window.qrcode(0, 'M');
-        qr.addData(codice);
-        qr.make();
-        $('qr').replaceChildren(disegnaQR(qr));
+    const codice = valore.slice(0, 8);
+    Promise.all([caricaScript('vendor/qrcode-generator.js'), differenzaOrologio(), chiaveFirma(valore.slice(8))])
+      .then(([, scarto, chiave]) => {
+        let mostrata = -1;
+        const aggiorna = () => {
+          const finestra = Math.floor((Date.now() + scarto) / 1000 / DURATA_QR);
+          if (finestra === mostrata) return;
+          mostrata = finestra;
+          firma(chiave, finestra).then(f => {
+            const qr = window.qrcode(0, 'M');
+            qr.addData(codice + f);
+            qr.make();
+            $('qr').replaceChildren(disegnaQR(qr));
+          });
+        };
+        aggiorna();
+        setInterval(aggiorna, 1000);
       })
       .catch(() => {
         $('qr').hidden = true;
         $('msgInvitato').textContent = 'Non riesco a mostrare il QR: aggiorna il browser, oppure all\'ingresso fatti cercare per nome.';
       });
+  }
+
+  function linkVecchio() {
+    document.title = 'ÆDEN';
+    $('vInvitato').hidden = false;
+    $('qr').hidden = true;
+    $('msgInvitato').textContent = 'Questo link non vale più: apri quello dell\'ultimo SMS.';
+  }
+
+  function chiaveFirma(segreto) {
+    return crypto.subtle.importKey('raw', new TextEncoder().encode(segreto), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  }
+
+  function firma(chiave, finestra) {
+    return crypto.subtle.sign('HMAC', chiave, new TextEncoder().encode(String(finestra)))
+      .then(buf => Array.from(new Uint8Array(buf).slice(0, 6), b => ALFABETO.charAt(b & 31)).join(''));
+  }
+
+  // Il QR dipende dall'ora: uso quella del server, nel caso l'orologio del telefono sia sbagliato.
+  function differenzaOrologio() {
+    const prima = Date.now();
+    return fetch(`${location.pathname}?ora=${prima}`, { method: 'HEAD', cache: 'no-store' })
+      .then(r => {
+        const server = Date.parse(r.headers.get('Date'));
+        const scarto = server + 500 - (prima + Date.now()) / 2;  // l'ora del server è al secondo
+        return Number.isFinite(scarto) && Math.abs(scarto) < 3600000 ? scarto : 0;
+      })
+      .catch(() => 0);
   }
 
   function disegnaQR(qr) {
@@ -97,16 +147,17 @@
   function paginaStaff(valore) {
     const id = idWebApp(valore);
     $('vAccesso').hidden = false;
+    impostaPostazione(postazione);
     if (!id) {
       $('fAccesso').hidden = true;
-      $('msgAccesso').textContent = 'Manca il collegamento al foglio (o è quello vecchio di prova): apri il link nuovo che ti hanno mandato.';
+      $('sceltaPostazione').hidden = true;
+      $('msgAccesso').textContent = 'Manca il collegamento al foglio: apri il link che ti hanno mandato.';
       return;
     }
     API = `https://script.google.com/macros/s/${id}/exec`;
-    // Si vede subito se il telefono sta usando il foglio giusto.
-    $('collegato').textContent = `Foglio collegato: …${id.slice(-4)}`;
     pin = leggi('sessionStorage', 'pin');
     if (pin) accedi(pin);
+    else statoPostazioni();
   }
 
   // Accetta solo l'ID di un web app di Google (o il suo indirizzo completo):
@@ -134,7 +185,7 @@
 
   function accedi(valore) {
     $('msgAccesso').textContent = 'Controllo…';
-    chiama({ azione: 'login', pin: valore })
+    chiama({ azione: 'login', pin: valore, postazione, sessione })
       .then(r => {
         if (r.esito !== 'ok') {
           esci(r.msg || 'Errore');
@@ -153,12 +204,16 @@
     $('vScanner').hidden = false;
     $('titolo').textContent = `Ingresso ${r.festa || ''}`;
     aggiornaConteggio(r.conteggio);
+    aggiornaPostazione(r);
+    clearInterval(battito);
+    battito = setInterval(presenza, 60000);
     tieniSchermoAcceso();
     impostaAzione('checkin');
-    imposta(navigator.maxTouchPoints > 0 || 'ontouchstart' in window ? 'camera' : 'lettore');
+    avviaCamera();
   }
 
   function esci(msg) {
+    clearInterval(battito);
     pin = '';
     scrivi('sessionStorage', 'pin', '');
     fermaCamera();
@@ -166,8 +221,10 @@
     $('vScanner').hidden = true;
     $('vAccesso').hidden = false;
     $('fAccesso').hidden = false;
+    $('sceltaPostazione').hidden = false;
     $('pin').value = '';
     $('msgAccesso').textContent = msg || '';
+    statoPostazioni();
   }
 
   function impostaAzione(a) {
@@ -176,27 +233,53 @@
     $('bControllo').classList.toggle('attivo', a === 'controllo');
     $('avvisoControllo').hidden = a !== 'controllo';
     ultimo = { codice: '', quando: 0, entrato: false };
-    if (modo === 'lettore') $('codice').focus();
   }
 
-  /* ---------- Fotocamera e lettore ---------- */
+  /* ---------- Postazioni: 1 scrive in Ricerca nome 1 (B27), 2 in Ricerca nome 2 (L27) ---------- */
 
-  function imposta(m) {
-    modo = m;
-    $('bCamera').classList.toggle('attivo', m === 'camera');
-    $('bLettore').classList.toggle('attivo', m === 'lettore');
-    $('msgScanner').textContent = '';
-    if (m === 'camera') {
-      avviaCamera();
-    } else {
-      fermaCamera();
-      $('codice').focus();
-    }
+  function impostaPostazione(n) {
+    postazione = n === 2 ? 2 : 1;
+    scrivi('localStorage', 'postazione', String(postazione));
+    $('bPost1').classList.toggle('attivo', postazione === 1);
+    $('bPost2').classList.toggle('attivo', postazione === 2);
+    $('postazioneAttiva').textContent = `Postazione ${postazione} · Ricerca nome ${postazione}`;
   }
+
+  // Prima del PIN il foglio dice quali postazioni usa già un altro telefono: propongo quella libera.
+  function statoPostazioni() {
+    if (!API) return;
+    chiama({ azione: 'stato', sessione })
+      .then(r => {
+        const occupate = Array.isArray(r.occupate) ? r.occupate : [];
+        [1, 2].forEach(n => { $(`bPost${n}`).querySelector('.stato').textContent = occupate.includes(n) ? 'già in uso' : ''; });
+        const altra = postazione === 1 ? 2 : 1;
+        if (occupate.includes(postazione) && !occupate.includes(altra)) impostaPostazione(altra);
+      })
+      .catch(() => {});
+  }
+
+  // Il foglio conferma la postazione (o la cambia, se l'altra era già presa) e avvisa dei conflitti.
+  function aggiornaPostazione(r) {
+    if (r.postazione) impostaPostazione(r.postazione);
+    $('avvisoPostazione').textContent = r.avviso || '';
+    $('avvisoPostazione').hidden = !r.avviso;
+  }
+
+  // Ogni minuto il telefono si fa sentire: dopo 3 minuti di silenzio la postazione si libera.
+  function presenza() {
+    if (!pin || $('vScanner').hidden) return;
+    chiama({ azione: 'presenza', pin, postazione, sessione })
+      .then(r => (r.esito === 'pin' ? esci(r.msg) : aggiornaPostazione(r)))
+      .catch(() => {});
+  }
+
+  /* ---------- Fotocamera ---------- */
 
   function avviaCamera() {
+    $('msgScanner').textContent = '';
+    $('bCamera').hidden = true;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      $('msgScanner').textContent = spiegaErroreCamera('');
+      erroreCamera(spiegaErroreCamera(''));
       return;
     }
     const pronto = window.Html5Qrcode ? Promise.resolve() : caricaScript('vendor/html5-qrcode.min.js');
@@ -214,10 +297,13 @@
       }, () => {
         throw new Error('Scanner non caricato: controlla la connessione e ricarica la pagina.');
       })
-      .catch(err => {
-        $('lettore').hidden = true;
-        $('msgScanner').textContent = err instanceof Error && /^Scanner/.test(err.message) ? err.message : spiegaErroreCamera(err);
-      });
+      .catch(err => erroreCamera(err instanceof Error && /^Scanner/.test(err.message) ? err.message : spiegaErroreCamera(err)));
+  }
+
+  function erroreCamera(msg) {
+    $('lettore').hidden = true;
+    $('msgScanner').textContent = msg;
+    $('bCamera').hidden = false;
   }
 
   function fermaCamera() {
@@ -231,11 +317,11 @@
       return 'Questo browser non può usare la fotocamera: apri il link con Chrome (Android) o Safari (iPhone), non dentro l\'app di Fogli o WhatsApp.';
     }
     if (/NotAllowed|Permission/i.test(e)) {
-      return 'Permesso fotocamera negato: consentilo per questo sito (tocca il lucchetto o "aA" accanto all\'indirizzo) e premi di nuovo 📷 Fotocamera.';
+      return 'Permesso fotocamera negato: consentilo per questo sito (tocca il lucchetto o "aA" accanto all\'indirizzo) e premi Riavvia fotocamera.';
     }
-    if (/NotFound|not found/i.test(e)) return 'Nessuna fotocamera trovata su questo dispositivo: scrivi il codice.';
-    if (/NotReadable|Could not start/i.test(e)) return 'La fotocamera è occupata da un\'altra app: chiudila e premi di nuovo 📷 Fotocamera.';
-    return `Fotocamera non disponibile (${e}): scrivi il codice.`;
+    if (/NotFound|not found/i.test(e)) return 'Nessuna fotocamera trovata su questo dispositivo.';
+    if (/NotReadable|Could not start/i.test(e)) return 'La fotocamera è occupata da un\'altra app: chiudila e premi Riavvia fotocamera.';
+    return `Fotocamera non disponibile (${e}).`;
   }
 
   function normalizza(testo) {
@@ -244,13 +330,14 @@
 
   function nuovoCodice(testo) {
     const contenuto = normalizza(testo);
-    if (!contenuto || inVolo) return;
-    const codice = contenuto.slice(0, 8);
+    // Finché il risultato è a schermo la fotocamera non legge altri QR: si va avanti toccando lo schermo.
+    if (!contenuto || inVolo || !$('esito').hidden) return;
+    const codice = contenuto.slice(0, 8);  // la firma cambia ogni 30 secondi: conta il codice
     if (codice === ultimo.codice) {
       // La fotocamera rilegge lo stesso QR finché resta inquadrato: chi è appena entrato
       // non deve diventare "già entrato" solo perché tiene il telefono alzato.
       const finestra = ultimo.entrato ? 30000 : 4000;
-      if (!$('esito').hidden || Date.now() - ultimo.quando < finestra) return;
+      if (Date.now() - ultimo.quando < finestra) return;
     }
     controlla(contenuto);
   }
@@ -259,7 +346,7 @@
     inVolo = true;
     ultimo = { codice: contenuto.slice(0, 8), quando: Date.now(), entrato: false };
     mostraEsito('attesa', ['titolo', '⏳'], ['det', contenuto.slice(0, 8)]);
-    chiama({ azione, pin, codice: contenuto })
+    chiama({ azione, pin, codice: contenuto, postazione, sessione })
       .catch(() => ({ esito: 'errore', msg: 'Nessuna risposta dal foglio: controlla la connessione e riprova.' }))
       .then(r => {
         inVolo = false;
@@ -275,6 +362,7 @@
       return;
     }
     if (r.conteggio) aggiornaConteggio(r.conteggio);
+    if (r.postazione) aggiornaPostazione(r);
     ultimo.entrato = r.esito === 'ok';
     const minorenne = /minorenn/i.test(r.eta || '');
     const pagato = /^si$/i.test(String(r.pagato || '').trim());
@@ -289,6 +377,12 @@
     } else if (r.esito === 'gia') {
       tipo = 'no';
       parti.push(['titolo', '✖ GIÀ ENTRATO'], ['nome', r.nome], ['det', r.ora ? `alle ${r.ora}` : 'ora non registrata']);
+    } else if (r.esito === 'scaduto') {
+      tipo = 'no';
+      parti.push(['titolo', '✖ QR SCADUTO'], ['nome', r.nome], ['det', 'Sembra uno screenshot vecchio: fai aprire il link dell\'SMS.']);
+    } else if (r.esito === 'vecchio') {
+      tipo = 'no';
+      parti.push(['titolo', '✖ QR NON VALIDO'], ['nome', r.nome], ['det', 'Non è il QR della pagina: fai aprire il link dell\'SMS.']);
     } else if (r.esito === 'controllo') {
       tipo = 'controllo';
       parti.push(['titolo', '🔍 CONTROLLO'], ['nome', r.nome], eta);
@@ -298,7 +392,7 @@
       parti.push(['det', 'Confronta il nome con il documento']);
     } else if (r.esito === 'sconosciuto') {
       tipo = 'no';
-      parti.push(['titolo', '✖ QR NON VALIDO'], ['det', `Codice: ${r.codice || '—'}`], ['det', 'Non è nella lista: controlla a mano.']);
+      parti.push(['titolo', '✖ QR NON VALIDO'], ['det', `Codice: ${r.codice || '—'}`], ['det', 'Non è nella lista: cerca il nome a mano.']);
     } else {
       tipo = 'errore';
       ultimo.codice = '';  // si può riprovare subito
@@ -310,7 +404,7 @@
     segnale(tipo);
     clearTimeout(timerEsito);
     // il controllo resta a schermo finché non lo chiudi, per confrontarlo con il documento
-    if (tipo !== 'controllo') timerEsito = setTimeout(chiudi, tipo === 'ok' ? 2000 : 4000);
+    if (tipo !== 'controllo') timerEsito = setTimeout(chiudi, DURATA_ESITO);
   }
 
   function dettagliPagamento(r) {
@@ -338,13 +432,12 @@
     if (inVolo) return;
     $('esito').hidden = true;
     ultimo.quando = Date.now();
-    if (modo === 'lettore' && !$('vScanner').hidden) $('codice').focus();
   }
 
   function registra(r, tipo) {
     const li = document.createElement('li');
     const chi = document.createElement('span');
-    const nota = { gia: ' (già entrato)', controllo: ' (controllo)' }[r.esito] || '';
+    const nota = { gia: ' (già entrato)', controllo: ' (controllo)', scaduto: ' (QR scaduto)', vecchio: ' (QR non valido)' }[r.esito] || '';
     chi.textContent = `${{ ok: '✔', avviso: '⚠', no: '✖', controllo: '🔍' }[tipo]} ${r.nome || r.codice || ''}${nota}`;
     const ora = document.createElement('span');
     ora.className = 'ora';
@@ -401,29 +494,24 @@
     sbloccaAudio();
     accedi(v);
   });
-  $('bEsci').addEventListener('click', () => esci(''));
+  $('bPost1').addEventListener('click', () => impostaPostazione(1));
+  $('bPost2').addEventListener('click', () => impostaPostazione(2));
+  $('bEsci').addEventListener('click', () => {
+    // libera subito la postazione, così l'altro telefono la può prendere
+    chiama({ azione: 'libera', pin, postazione, sessione }).catch(() => {});
+    esci('');
+  });
   $('bIngresso').addEventListener('click', () => impostaAzione('checkin'));
   $('bControllo').addEventListener('click', () => impostaAzione('controllo'));
-  $('bCamera').addEventListener('click', () => { sbloccaAudio(); imposta('camera'); });
-  $('bLettore').addEventListener('click', () => { sbloccaAudio(); imposta('lettore'); });
+  $('bCamera').addEventListener('click', () => { sbloccaAudio(); avviaCamera(); });
   $('esito').addEventListener('click', chiudi);
-  $('fCodice').addEventListener('submit', e => {
-    e.preventDefault();
-    const v = $('codice').value;
-    $('codice').value = '';
-    nuovoCodice(v);
-  });
-  // Col lettore USB il campo deve restare sempre selezionato.
-  $('codice').addEventListener('blur', () => {
-    setTimeout(() => {
-      if (modo === 'lettore' && !$('vScanner').hidden && document.activeElement !== $('codice')) $('codice').focus();
-    }, 300);
-  });
+  // Suono e vibrazione partono solo dopo un tocco: se la pagina si è riaperta da sola basta toccarla una volta.
+  document.addEventListener('pointerdown', sbloccaAudio, { once: true });
   // Quando lo schermo si spegne il telefono chiude la fotocamera: al ritorno la riapro.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState !== 'visible' || $('vScanner').hidden) return;
     tieniSchermoAcceso();
-    if (modo !== 'camera') return;
+    presenza();
     if (scanner && scanner.isScanning) scanner.stop().catch(() => {}).then(avviaCamera);
     else avviaCamera();
   });
@@ -435,6 +523,7 @@
 
   const dopoCancelletto = decodeURIComponent(location.hash.slice(1)).trim();
   const maiuscolo = dopoCancelletto.toUpperCase();
-  if (FORMATO_INVITATO.test(maiuscolo)) paginaInvitato(maiuscolo.slice(0, 8));
+  if (FORMATO_INVITATO.test(maiuscolo)) paginaInvitato(maiuscolo);
+  else if (FORMATO_CODICE.test(maiuscolo)) linkVecchio();  // link col solo codice: non vale più
   else paginaStaff(dopoCancelletto);
 })();
