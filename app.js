@@ -18,12 +18,14 @@
   const DURATA_QR = 30;         // secondi, come nel foglio
   const DURATA_ESITO = 10000;   // il risultato di un ingresso resta a schermo 10 secondi
   const FORMATO_ID = /^AKfyc[\w-]{20,200}$/;
-  // Web app che non valgono più (il foglio di prova): un telefono che li ha salvati li dimentica.
-  const ID_RITIRATI = ['AKfycbx8Dfj3CezchOj947DcTevJOnEvQrMvvCbwwKRz9DC2yzOZNmfdDkVolDemE5LuK6b7yg'];
+  // Impronta (SHA-256) del web app ufficiale della festa. L'indirizzo vero non è scritto qui: dall'impronta
+  // non si ricava. Un link fatto con un altro web app (per esempio per farsi dare il PIN) viene riconosciuto.
+  const WEB_APP_UFFICIALI = ['663c0927456e1a1db5b119ffb2351c0dfbb66f08716a88a2f50bf307c9d15d7b'];
   const $ = id => document.getElementById(id);
 
   let API = '';
   let pin = '';
+  let daRiprovare = '';    // codice la cui scansione è finita senza risposta: può essere stata segnata lo stesso
   let azione = 'checkin';  // 'checkin' segna l'ingresso, 'controllo' mostra solo le info
   let postazione = Number(leggi('localStorage', 'postazione')) === 2 ? 2 : 1;
   const sessione = leggi('sessionStorage', 'sessione') || nuovaSessione();
@@ -144,34 +146,56 @@
 
   /* ---------- Pagina dello staff ---------- */
 
+  // Il link dello staff porta l'ID di un web app di Google (o il suo indirizzo completo): il PIN può andare
+  // solo lì, mai a un altro sito. In più controllo che sia proprio il web app della festa.
   function paginaStaff(valore) {
-    const id = idWebApp(valore);
-    $('vAccesso').hidden = false;
+    const m = valore.match(/^https:\/\/script\.google\.com\/macros\/s\/([\w-]+)\/exec$/);
+    const delLink = m ? m[1] : valore;
+    const id = FORMATO_ID.test(delLink) ? delLink : leggi('localStorage', 'api');
     impostaPostazione(postazione);
-    if (!id) {
-      $('fAccesso').hidden = true;
-      $('sceltaPostazione').hidden = true;
-      $('msgAccesso').textContent = 'Manca il collegamento al foglio: apri il link che ti hanno mandato.';
+    if (!FORMATO_ID.test(id)) {
+      senzaCollegamento();
       return;
     }
+    ufficiale(id).then(si => {
+      if (si) {
+        scrivi('localStorage', 'api', id);
+        collega(id);
+        return;
+      }
+      scrivi('localStorage', 'api', '');  // un collegamento non riconosciuto non resta in memoria
+      if (id !== delLink) {
+        senzaCollegamento();
+        return;
+      }
+      $('vAvviso').hidden = false;
+      $('bContinua').addEventListener('click', () => {
+        $('vAvviso').hidden = true;
+        collega(id);
+      }, { once: true });
+    });
+  }
+
+  function ufficiale(id) {
+    return Promise.resolve()
+      .then(() => crypto.subtle.digest('SHA-256', new TextEncoder().encode(id)))
+      .then(buf => WEB_APP_UFFICIALI.includes(Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, '0')).join('')))
+      .catch(() => false);
+  }
+
+  function senzaCollegamento() {
+    $('vAccesso').hidden = false;
+    $('fAccesso').hidden = true;
+    $('sceltaPostazione').hidden = true;
+    $('msgAccesso').textContent = 'Manca il collegamento al foglio: apri il link che ti hanno mandato.';
+  }
+
+  function collega(id) {
     API = `https://script.google.com/macros/s/${id}/exec`;
+    $('vAccesso').hidden = false;
     pin = leggi('sessionStorage', 'pin');
     if (pin) accedi(pin);
     else statoPostazioni();
-  }
-
-  // Accetta solo l'ID di un web app di Google (o il suo indirizzo completo):
-  // un link modificato non può far mandare il PIN a un altro sito.
-  function idWebApp(valore) {
-    const m = valore.match(/^https:\/\/script\.google\.com\/macros\/s\/([\w-]+)\/exec$/);
-    let id = m ? m[1] : valore;
-    if (FORMATO_ID.test(id) && !ID_RITIRATI.includes(id)) scrivi('localStorage', 'api', id);
-    else id = leggi('localStorage', 'api');
-    if (ID_RITIRATI.includes(id)) {
-      scrivi('localStorage', 'api', '');
-      return '';
-    }
-    return FORMATO_ID.test(id) ? id : '';
   }
 
   function chiama(dati) {
@@ -344,12 +368,23 @@
 
   function controlla(contenuto) {
     inVolo = true;
-    ultimo = { codice: contenuto.slice(0, 8), quando: Date.now(), entrato: false };
-    mostraEsito('attesa', ['titolo', '⏳'], ['det', contenuto.slice(0, 8)]);
-    chiama({ azione, pin, codice: contenuto, postazione, sessione })
-      .catch(() => ({ esito: 'errore', msg: 'Nessuna risposta dal foglio: controlla la connessione e riprova.' }))
+    const codice = contenuto.slice(0, 8);
+    const segna = azione === 'checkin';
+    ultimo = { codice, quando: Date.now(), entrato: false };
+    mostraEsito('attesa', ['titolo', '⏳'], ['det', codice]);
+    const dati = { azione, pin, codice: contenuto, postazione, sessione };
+    if (segna && daRiprovare === codice) dati.riprova = true;
+    chiama(dati)
+      .catch(() => ({ esito: 'errore', rete: true, msg: 'Nessuna risposta dal foglio: controlla la connessione e riprova.' }))
       .then(r => {
         inVolo = false;
+        // Senza risposta l'ingresso può essere stato segnato lo stesso. Alla prossima scansione di questo QR
+        // lo dico al foglio: se l'aveva segnato questo telefono risponde "entra", non "già entrato".
+        if (r.rete) {
+          if (segna) daRiprovare = codice;
+        } else if (r.esito !== 'errore') {
+          daRiprovare = '';
+        }
         risultato(r);
       });
   }
@@ -521,7 +556,10 @@
   // Un altro link aperto nella stessa scheda cambia solo la parte dopo il #: ricarico da capo.
   window.addEventListener('hashchange', () => location.reload());
 
-  const dopoCancelletto = decodeURIComponent(location.hash.slice(1)).trim();
+  let dopoCancelletto = '';
+  try {
+    dopoCancelletto = decodeURIComponent(location.hash.slice(1)).trim();
+  } catch (e) { /* link rovinato: vale come nessun link */ }
   const maiuscolo = dopoCancelletto.toUpperCase();
   if (FORMATO_INVITATO.test(maiuscolo)) paginaInvitato(maiuscolo);
   else if (FORMATO_CODICE.test(maiuscolo)) linkVecchio();  // link col solo codice: non vale più
