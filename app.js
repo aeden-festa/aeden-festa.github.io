@@ -17,6 +17,9 @@
   const FORMATO_INVITATO = new RegExp(`^[${ALFABETO}]{18}$`);
   const DURATA_QR = 30;         // secondi, come nel foglio
   const DURATA_ESITO = 10000;   // il risultato di un ingresso resta a schermo 10 secondi
+  // Appena chiuso un risultato, lo stesso QR ancora inquadrato non viene riletto per qualche secondo:
+  // chi è appena entrato e tiene ancora il telefono alzato non diventa subito "già entrato".
+  const PAUSA_STESSO_QR = 4000;
   const FORMATO_ID = /^AKfyc[\w-]{20,200}$/;
   // Impronta (SHA-256) del web app ufficiale della festa. L'indirizzo vero non è scritto qui: dall'impronta
   // non si ricava. Un link fatto con un altro web app (per esempio per farsi dare il PIN) viene riconosciuto.
@@ -31,7 +34,7 @@
   const sessione = leggi('sessionStorage', 'sessione') || nuovaSessione();
   let scanner = null;
   let inVolo = false;
-  let ultimo = { codice: '', quando: 0, entrato: false };
+  let ultimo = { codice: '', quando: 0 };
   let timerEsito = 0;
   let battito = 0;
   let audio = null;
@@ -256,7 +259,7 @@
     $('bIngresso').classList.toggle('attivo', a === 'checkin');
     $('bControllo').classList.toggle('attivo', a === 'controllo');
     $('avvisoControllo').hidden = a !== 'controllo';
-    ultimo = { codice: '', quando: 0, entrato: false };
+    ultimo = { codice: '', quando: 0 };
   }
 
   /* ---------- Postazioni: 1 scrive in Ricerca nome 1 (B27), 2 in Ricerca nome 2 (L27) ---------- */
@@ -266,7 +269,7 @@
     scrivi('localStorage', 'postazione', String(postazione));
     $('bPost1').classList.toggle('attivo', postazione === 1);
     $('bPost2').classList.toggle('attivo', postazione === 2);
-    $('postazioneAttiva').textContent = `Postazione ${postazione} · Ricerca nome ${postazione}`;
+    $('postazioneAttiva').textContent = `Postazione ${postazione} · Ricerca\u00a0nome\u00a0${postazione}`;
   }
 
   // Prima del PIN il foglio dice quali postazioni usa già un altro telefono: propongo quella libera.
@@ -357,12 +360,9 @@
     // Finché il risultato è a schermo la fotocamera non legge altri QR: si va avanti toccando lo schermo.
     if (!contenuto || inVolo || !$('esito').hidden) return;
     const codice = contenuto.slice(0, 8);  // la firma cambia ogni 30 secondi: conta il codice
-    if (codice === ultimo.codice) {
-      // La fotocamera rilegge lo stesso QR finché resta inquadrato: chi è appena entrato
-      // non deve diventare "già entrato" solo perché tiene il telefono alzato.
-      const finestra = ultimo.entrato ? 30000 : 4000;
-      if (Date.now() - ultimo.quando < finestra) return;
-    }
+    // Dopo la pausa lo stesso QR si rilegge e il foglio risponde: chi è già entrato risulta sempre "già entrato",
+    // anche se il telefono passa subito a un'altra persona.
+    if (codice === ultimo.codice && Date.now() - ultimo.quando < PAUSA_STESSO_QR) return;
     controlla(contenuto);
   }
 
@@ -370,7 +370,7 @@
     inVolo = true;
     const codice = contenuto.slice(0, 8);
     const segna = azione === 'checkin';
-    ultimo = { codice, quando: Date.now(), entrato: false };
+    ultimo = { codice, quando: Date.now() };
     mostraEsito('attesa', ['titolo', '⏳'], ['det', codice]);
     const dati = { azione, pin, codice: contenuto, postazione, sessione };
     if (segna && daRiprovare === codice) dati.riprova = true;
@@ -398,7 +398,6 @@
     }
     if (r.conteggio) aggiornaConteggio(r.conteggio);
     if (r.postazione) aggiornaPostazione(r);
-    ultimo.entrato = r.esito === 'ok';
     const minorenne = /minorenn/i.test(r.eta || '');
     const pagato = /^si$/i.test(String(r.pagato || '').trim());
     const eta = minorenne ? ['badge', '⚠ MINORENNE'] : ['det', r.eta || 'Età non indicata'];
