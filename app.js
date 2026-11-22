@@ -31,7 +31,7 @@
   let daRiprovare = '';    // codice la cui scansione è finita senza risposta: può essere stata segnata lo stesso
   let azione = 'checkin';  // 'checkin' segna l'ingresso, 'controllo' mostra solo le info
   let postazione = Number(leggi('localStorage', 'postazione')) === 2 ? 2 : 1;
-  const sessione = leggi('sessionStorage', 'sessione') || nuovaSessione();
+  const sessione = leggi('localStorage', 'sessione') || nuovaSessione();
   let scanner = null;
   let inVolo = false;
   let ultimo = { codice: '', quando: 0 };
@@ -47,10 +47,11 @@
     try { valore ? window[archivio].setItem(chiave, valore) : window[archivio].removeItem(chiave); } catch (e) { /* ignora */ }
   }
 
-  // Ogni scheda del browser conta come un telefono diverso per le postazioni.
+  // Ogni telefono ha la sua sigla e la tiene anche se chiudi e riapri il link: così ritrova subito la sua postazione.
+  // Non è un dato personale e non dà accesso a niente (per quello serve il PIN, che resta solo nella scheda aperta).
   function nuovaSessione() {
     const s = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('');
-    scrivi('sessionStorage', 'sessione', s);
+    scrivi('localStorage', 'sessione', s);
     return s;
   }
 
